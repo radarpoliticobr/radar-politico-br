@@ -1848,12 +1848,13 @@
   <input type="password" id="api-key-input" placeholder="sk-ant-api03-..." autocomplete="off" oninput="akOnInput()"/>
   <button id="ak-save-btn" onclick="akSave()">SALVAR</button>
   <span id="ak-status"></span>
-  <a href="https://console.anthropic.com/keys" target="_blank" id="ak-info-link">↗ Obter chave grátis</a>
+  <a href="https://console.anthropic.com/settings/keys" target="_blank" id="ak-info-link">↗ Obter chave grátis</a>
 </div>
 <nav class="tab-nav">
   <button class="tab-btn active" onclick="switchTab('busca')">👤 Políticos</button>
   <button class="tab-btn" onclick="switchTab('prefeitura')" style="border-bottom-color:#00e5ff;color:#80deea">🏙️ Prefeitura</button>
   <button class="tab-btn" onclick="switchTab('mapa')" style="border-bottom-color:#ff4444;color:#ff8a8a">🗺️ Mapa da Corrupção</button>
+  <button class="tab-btn" onclick="switchTab('eleicoes')" style="border-bottom-color:#ffd700;color:#ffd700">🗳️ Eleições 2026</button>
 </nav>
 
 <div class="tab-panel active" id="tab-busca">
@@ -3713,6 +3714,7 @@ function switchTab(tabId) {
   if (tabId === 'busca')      btns[0] && btns[0].classList.add('active');
   if (tabId === 'prefeitura') btns[1] && btns[1].classList.add('active');
   if (tabId === 'mapa')       btns[2] && btns[2].classList.add('active');
+  if (tabId === 'eleicoes')    btns[3] && btns[3].classList.add('active');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 </script>
@@ -5014,7 +5016,7 @@ async function mapaAnalisarIA() {
   }, 2000);
 
   const prompt = `Você é um sistema especializado em análise de risco de corrupção municipal brasileira.
-Analise o município de ${cidade} - ${estado} e retorne APENAS um JSON válido (sem markdown):
+Analise EXCLUSIVAMENTE o MUNICÍPIO de ${cidade} - ${estado} (não bairros ou regiões, o município autônomo com código IBGE próprio) e retorne APENAS um JSON válido (sem markdown):
 {
   "score_corrupcao": <número 0-100>,
   "nivel_risco": "<MUITO BAIXO|MODERADO|ALTO|MUITO ALTO|CRÍTICO>",
@@ -5031,13 +5033,13 @@ Analise o município de ${cidade} - ${estado} e retorne APENAS um JSON válido (
   try {
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method:'POST', headers:{'Content-Type':'application/json','x-api-key':akGet(),'anthropic-version':'2023-06-01'},
-      body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:2000, messages:[{role:'user',content:prompt}] })
+      body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:2000, tools:[{type:'web_search_20250305',name:'web_search'}], messages:[{role:'user',content:prompt}] })
     });
     const data = await resp.json();
     clearInterval(lInt);
     loadEl.style.display = 'none';
 
-    let txt = (data.content&&data.content[0]?data.content[0].text:'')||'';
+    let txt = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text||'').join('');
     let js = txt.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
     const s=js.indexOf('{'),e=js.lastIndexOf('}');
     if(s>=0&&e>=0) js=js.slice(s,e+1);
@@ -5176,6 +5178,537 @@ setTimeout(() => {
 </script>
 </div><!-- /tab-mapa -->
 
+
+<!-- ════════════════════ ABA ELEIÇÕES 2026 ════════════════════ -->
+<div class="tab-panel" id="tab-eleicoes">
+<style>
+.el-wrap{max-width:1280px;margin:0 auto;padding:0 0 60px}
+.el-hero{background:linear-gradient(135deg,#000510 0%,#0a0020 50%,#000d1a 100%);border-bottom:2px solid rgba(255,215,0,.3);padding:36px 24px 28px;position:relative;overflow:hidden}
+.el-hero::before{content:'';position:absolute;top:-60px;right:-60px;width:300px;height:300px;background:radial-gradient(circle,rgba(255,215,0,.06) 0%,transparent 70%);pointer-events:none}
+.el-hero-title{font-family:'Bebas Neue',sans-serif;font-size:clamp(2rem,5vw,3.2rem);color:#ffd700;letter-spacing:4px;line-height:1;margin-bottom:6px}
+.el-hero-sub{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#4a6040;letter-spacing:2px}
+.el-hero-badges{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.el-badge{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:1.5px;padding:4px 10px;border-radius:2px;border:1px solid}
+.el-badge-data{border-color:rgba(255,215,0,.3);color:#b8a000;background:rgba(255,215,0,.05)}
+.el-badge-live{border-color:rgba(0,229,255,.3);color:#00bcd4;background:rgba(0,229,255,.05);animation:el-pulse 2s infinite}
+@keyframes el-pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.el-cargo-filter{display:flex;flex-wrap:wrap;padding:20px 24px 0;border-bottom:1px solid rgba(255,215,0,.1)}
+.el-cargo-btn{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:1.5px;padding:10px 18px;background:transparent;border:none;border-bottom:2px solid transparent;color:#3a4a30;cursor:pointer;transition:all .2s}
+.el-cargo-btn:hover{color:#ffd700}
+.el-cargo-btn.active{color:#ffd700;border-bottom-color:#ffd700}
+.el-main{padding:24px;display:grid;grid-template-columns:1fr 320px;gap:24px}
+@media(max-width:880px){.el-main{grid-template-columns:1fr}}
+.el-section-title{font-family:'Bebas Neue',sans-serif;font-size:1.1rem;letter-spacing:3px;color:#ffd700;margin-bottom:16px;display:flex;align-items:center;gap:10px}
+.el-section-title::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,rgba(255,215,0,.3),transparent)}
+.el-pres-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:16px;margin-bottom:28px}
+.el-card{background:#040c16;border:1px solid rgba(255,215,0,.1);border-radius:8px;padding:16px;position:relative;transition:all .2s}
+.el-card:hover{border-color:rgba(255,215,0,.3);transform:translateY(-2px)}
+.el-card.favorito{border-color:rgba(255,215,0,.4);background:#060f18}
+.el-card.favorito::before{content:'⭐ FAVORITO';position:absolute;top:-1px;right:12px;background:#ffd700;color:#000;font-family:'IBM Plex Mono',monospace;font-size:8px;font-weight:700;letter-spacing:1px;padding:2px 8px;border-radius:0 0 4px 4px}
+.el-card.alerta{border-color:rgba(255,68,68,.4)}
+.el-card.alerta::before{content:'🚨 ALERTA';position:absolute;top:-1px;right:12px;background:#ff4444;color:#fff;font-family:'IBM Plex Mono',monospace;font-size:8px;font-weight:700;letter-spacing:1px;padding:2px 8px;border-radius:0 0 4px 4px}
+.el-nome{font-size:1rem;font-weight:700;color:#e0e8ff;margin-bottom:4px}
+.el-partido{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#3a5070;letter-spacing:1px;margin-bottom:10px}
+.el-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.el-chip{font-family:'IBM Plex Mono',monospace;font-size:9px;padding:2px 7px;border-radius:2px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#8090a8}
+.el-bar-label{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3a5070;letter-spacing:1px;margin-bottom:4px;display:flex;justify-content:space-between}
+.el-bar-track{height:5px;background:rgba(255,255,255,.05);border-radius:3px;overflow:hidden;margin-bottom:10px}
+.el-bar-fill{height:100%;border-radius:3px;transition:width 1.2s ease}
+.el-score-row{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.05)}
+.el-score-label{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3a5070;letter-spacing:1px}
+.el-score-val{font-family:'Bebas Neue',sans-serif;font-size:1.2rem;letter-spacing:2px}
+.el-alerta-item{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#ff7070;letter-spacing:.5px;line-height:1.7;padding:2px 0}
+.el-alerta-item::before{content:'⚠ '}
+/* mapa */
+.el-mapa-box{background:#040c16;border:1px solid rgba(255,215,0,.1);border-radius:8px;padding:16px;position:sticky;top:20px}
+.el-mapa-title{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#ffd700;letter-spacing:2px;margin-bottom:12px}
+#el-svg-map{width:100%;height:auto}
+#el-svg-map path{cursor:pointer;transition:all .2s;stroke:#0a1628;stroke-width:1.5}
+#el-svg-map path:hover{opacity:.8;stroke-width:2.5;stroke:#ffd700}
+.el-mapa-legend{margin-top:12px;display:flex;flex-direction:column;gap:5px}
+.el-leg-item{display:flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3a5070;letter-spacing:.8px}
+.el-leg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.el-tt{display:none;position:fixed;background:#060f18;border:1px solid rgba(255,215,0,.3);border-radius:6px;padding:12px 14px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#c0d0e8;z-index:9999;min-width:200px;max-width:260px;pointer-events:none}
+.el-tt.show{display:block}
+.el-tt-uf{font-size:9px;color:#ffd700;letter-spacing:2px;margin-bottom:6px}
+.el-tt-nome{font-weight:700;color:#fff;margin-bottom:3px}
+.el-tt-info{font-size:9px;color:#3a5070}
+/* table */
+.el-table{width:100%;border-collapse:collapse}
+.el-table th{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:1.5px;color:#3a5070;padding:8px 10px;text-align:left;border-bottom:1px solid rgba(255,215,0,.1)}
+.el-table td{padding:10px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:middle}
+.el-table tr:hover td{background:rgba(255,215,0,.03)}
+.el-tnome{font-size:.85rem;font-weight:600;color:#e0e8ff}
+.el-tuf{font-family:'IBM Plex Mono',monospace;font-size:9px;color:#3a5070;margin-top:2px}
+.el-partido-tag{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.8px;padding:2px 7px;border-radius:2px;border:1px solid}
+.el-alerta-tag{display:inline-flex;align-items:center;gap:4px;font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:1px;padding:2px 7px;border-radius:2px;background:rgba(255,68,68,.1);border:1px solid rgba(255,68,68,.3);color:#ff6666}
+.el-bar-sm-track{width:55px;height:4px;background:rgba(255,255,255,.05);border-radius:2px;overflow:hidden;display:inline-block;vertical-align:middle}
+.el-bar-sm-fill{height:100%;border-radius:2px}
+</style>
+
+<div class="el-wrap">
+  <div class="el-hero">
+    <div class="el-hero-title">🗳️ ELEIÇÕES 2026</div>
+    <div class="el-hero-sub">// CENÁRIO ELEITORAL · INTENÇÕES DE VOTO · ALERTAS DE INTEGRIDADE</div>
+    <div class="el-hero-badges">
+      <span class="el-badge el-badge-data">📊 PESQUISAS JAN–MAR 2026 · DATAFOLHA · QUAEST · PODERDATA</span>
+      <span class="el-badge el-badge-live">⚡ ELEIÇÕES: OUT 2026</span>
+      <span class="el-badge el-badge-data">🔴 ALERTAS: FICHA LIMPA · TCU · CGU · STF</span>
+    </div>
+    <button id="el-update-btn" onclick="elAtualizarIA()" style="margin-top:14px;background:rgba(255,215,0,.1);border:1px solid rgba(255,215,0,.4);border-radius:4px;color:#ffd700;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1.5px;padding:8px 18px;cursor:pointer;transition:all .2s" onmouseover="this.style.background='rgba(255,215,0,.2)'" onmouseout="this.style.background='rgba(255,215,0,.1)'">
+      ⚡ ATUALIZAR COM IA · PESQUISAS RECENTES
+    </button>
+    <div id="el-update-status" style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#3a5070;letter-spacing:1px;margin-top:8px"></div>
+  </div>
+
+  <div class="el-cargo-filter">
+    <button class="el-cargo-btn active" onclick="elTab('presidente',this)">👤 PRESIDENTE</button>
+    <button class="el-cargo-btn" onclick="elTab('governadores',this)">🏛️ GOVERNADORES</button>
+    <button class="el-cargo-btn" onclick="elTab('senadores',this)">🎖️ SENADORES</button>
+    <button class="el-cargo-btn" onclick="elTab('deputados',this)">📋 DEP. FEDERAIS</button>
+  </div>
+
+  <div id="elp-presidente" class="el-main">
+    <div>
+      <div class="el-section-title">DISPUTA PRESIDENCIAL · 1º TURNO</div>
+      <div class="el-pres-grid" id="el-pres-grid"></div>
+      <div class="el-section-title" style="color:#ff4444">🚨 ALERTAS CRÍTICOS · RISCO ALTO + ALTA INTENÇÃO DE VOTO</div>
+      <div id="el-pres-alertas"></div>
+    </div>
+    <div class="el-mapa-box">
+      <div class="el-mapa-title">🗺️ FAVORITO POR ESTADO</div>
+      <svg id="el-svg-map" viewBox="0 0 960 960" xmlns="http://www.w3.org/2000/svg">
+        <path d="M230,40 L310,40 L330,80 L310,130 L260,140 L220,100 Z" data-uf="RR" data-nome="Roraima"/>
+        <path d="M360,40 L430,40 L440,90 L400,110 L360,80 Z" data-uf="AP" data-nome="Amapá"/>
+        <path d="M150,100 L310,90 L350,130 L380,180 L360,250 L290,280 L200,270 L140,230 L130,160 Z" data-uf="AM" data-nome="Amazonas"/>
+        <path d="M360,100 L520,80 L590,120 L600,180 L560,240 L500,280 L420,300 L360,270 L330,210 L350,150 Z" data-uf="PA" data-nome="Pará"/>
+        <path d="M100,230 L160,220 L190,260 L170,300 L110,300 L90,270 Z" data-uf="AC" data-nome="Acre"/>
+        <path d="M170,280 L250,260 L290,290 L280,350 L220,380 L165,350 Z" data-uf="RO" data-nome="Rondônia"/>
+        <path d="M280,290 L430,280 L490,320 L510,400 L480,470 L380,490 L290,450 L255,380 Z" data-uf="MT" data-nome="Mato Grosso"/>
+        <path d="M510,230 L580,220 L610,290 L600,380 L550,410 L490,380 L480,300 Z" data-uf="TO" data-nome="Tocantins"/>
+        <path d="M580,140 L660,130 L690,180 L680,240 L630,270 L570,250 L550,200 Z" data-uf="MA" data-nome="Maranhão"/>
+        <path d="M660,160 L730,150 L750,210 L730,270 L670,280 L640,230 Z" data-uf="PI" data-nome="Piauí"/>
+        <path d="M730,140 L800,140 L820,200 L790,240 L740,240 L720,195 Z" data-uf="CE" data-nome="Ceará"/>
+        <path d="M800,150 L860,160 L870,200 L840,215 L805,200 Z" data-uf="RN" data-nome="Rio Grande do Norte"/>
+        <path d="M800,210 L860,205 L870,240 L835,250 L800,240 Z" data-uf="PB" data-nome="Paraíba"/>
+        <path d="M720,250 L830,250 L860,280 L810,310 L730,300 L700,275 Z" data-uf="PE" data-nome="Pernambuco"/>
+        <path d="M810,310 L860,305 L870,335 L840,345 L810,330 Z" data-uf="AL" data-nome="Alagoas"/>
+        <path d="M800,340 L845,335 L855,365 L825,375 L800,360 Z" data-uf="SE" data-nome="Sergipe"/>
+        <path d="M640,290 L790,290 L820,340 L800,440 L740,500 L660,510 L590,470 L560,400 L580,330 Z" data-uf="BA" data-nome="Bahia"/>
+        <path d="M500,390 L590,380 L630,430 L610,510 L550,530 L490,490 L470,440 Z" data-uf="GO" data-nome="Goiás"/>
+        <path d="M560,445 L590,440 L595,465 L575,468 L558,458 Z" data-uf="DF" data-nome="Distrito Federal"/>
+        <path d="M590,440 L720,430 L760,470 L750,560 L680,600 L590,590 L545,540 L545,480 Z" data-uf="MG" data-nome="Minas Gerais"/>
+        <path d="M760,470 L810,470 L820,530 L790,560 L755,540 Z" data-uf="ES" data-nome="Espírito Santo"/>
+        <path d="M720,555 L790,545 L810,585 L780,610 L730,600 L710,575 Z" data-uf="RJ" data-nome="Rio de Janeiro"/>
+        <path d="M380,470 L490,460 L520,520 L510,590 L440,610 L370,580 L355,510 Z" data-uf="MS" data-nome="Mato Grosso do Sul"/>
+        <path d="M520,545 L640,530 L670,570 L650,640 L560,660 L490,640 L475,590 Z" data-uf="SP" data-nome="São Paulo"/>
+        <path d="M470,620 L580,610 L620,650 L610,710 L530,730 L455,700 L445,650 Z" data-uf="PR" data-nome="Paraná"/>
+        <path d="M490,730 L590,715 L620,745 L610,780 L540,790 L480,770 Z" data-uf="SC" data-nome="Santa Catarina"/>
+        <path d="M470,780 L590,770 L630,810 L620,880 L540,910 L460,880 L440,830 Z" data-uf="RS" data-nome="Rio Grande do Sul"/>
+      </svg>
+      <div class="el-mapa-legend" id="el-mapa-leg"></div>
+    </div>
+  </div>
+
+  <div id="elp-governadores" class="el-main" style="display:none">
+    <div style="grid-column:1/-1">
+      <div class="el-section-title">GOVERNADORES · FAVORITOS 2026</div>
+      <div style="overflow-x:auto">
+        <table class="el-table"><thead><tr>
+          <th>ESTADO</th><th>FAVORITO</th><th>PARTIDO</th><th>INTENÇÃO</th><th>SCORE</th><th>STATUS</th>
+        </tr></thead><tbody id="el-gov-body"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div id="elp-senadores" class="el-main" style="display:none">
+    <div style="grid-column:1/-1">
+      <div class="el-section-title">SENADORES · RENOVAÇÃO 2026 — 1/3 DAS VAGAS</div>
+      <div style="overflow-x:auto">
+        <table class="el-table"><thead><tr>
+          <th>ESTADO</th><th>FAVORITO</th><th>PARTIDO</th><th>INTENÇÃO</th><th>SCORE</th><th>STATUS</th>
+        </tr></thead><tbody id="el-sen-body"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div id="elp-deputados" class="el-main" style="display:none">
+    <div style="grid-column:1/-1">
+      <div class="el-section-title">DEPUTADOS FEDERAIS · DESTAQUES POR REGIÃO</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px" id="el-dep-grid"></div>
+    </div>
+  </div>
+</div>
+
+<div class="el-tt" id="el-tt">
+  <div class="el-tt-uf" id="el-tt-uf"></div>
+  <div class="el-tt-nome" id="el-tt-nome"></div>
+  <div class="el-tt-info" id="el-tt-info"></div>
+</div>
+
+<script>
+// ── DADOS ELEIÇÕES 2026 · Fontes: Datafolha/Quaest/PoderData Jan-Mar 2026 ───
+const EL_PARTIDO_CORES = {
+  PT:'#ff1744',PL:'#1565c0',REPUBLICANOS:'#00b0ff',PDT:'#d32f2f',
+  PSOL:'#e040fb',PSB:'#f57c00',MDB:'#ff8f00',UNIÃO:'#ff6d00',
+  PSD:'#ffd600',PP:'#2979ff',PODE:'#00acc1',PSDB:'#1976d2',
+  NOVO:'#e65100',AVANTE:'#f57c00',PRD:'#00897b',DC:'#6a1b9a'
+};
+function elCor(p){for(const[k,v]of Object.entries(EL_PARTIDO_CORES))if(p.includes(k))return v;return'#4a6080'}
+function elScoreCor(s){return s>=70?'#00c853':s>=50?'#ffd700':s>=35?'#ff7a00':'#ff4444'}
+
+// ── DADOS ATUALIZADOS: Datafolha 3-5/mar/2026 · Paraná Pesquisas 27/fev/2026 · AtlasIntel 25/fev/2026
+const PRESIDENTES=[
+  {
+    nome:'Lula',fullNome:'Luiz Inácio Lula da Silva',partido:'PT',
+    cargo:'Presidente · Candidato à reeleição',
+    intencao:38,intencao2t:46,score:45,favorito:true,alerta:true,
+    chips:['1º turno: 38%','2º turno: 46%','Nordeste sólido','Rejeição: 51,5%'],
+    alertas:[
+      'LAVA JATO: Condenado 2x (Triplex/Guarujá e Sítio Atibaia) — pena chegou a 17 anos; passou 580 dias preso; condenações anuladas pelo STF por vício de jurisdição (Moro declarado parcial); casos prescreveram',
+      'CARTÃO CORPORATIVO: R$ 55,4 mi gastos pela Presidência (jan/2023–abr/2025) com 99,55% das despesas classificadas como SIGILOSAS — maior índice já registrado; TCU aponta descumprimento de determinações há +7 anos (Acórdão jul/2025)',
+      'CARTÃO CORPORATIVO: Despesas incluem iFood e materiais de construção; gasto da Presidência 2x maior que os 4 anos de Bolsonaro; sigilo decretado sobre itens comprados',
+      'MENSALÃO (2005): PT operou esquema de compra de votos no Congresso; 25 condenados pelo STF; Lula não foi condenado mas alegou "não saber" do esquema em seu próprio governo',
+      'MINISTROS INVESTIGADOS: Ministro Juscelino Filho indiciado pela PF por corrupção, lavagem de dinheiro e organização criminosa (2024) — nomeado por Lula',
+      'DESAPROVAÇÃO: 51,5% reprovam o governo (AtlasIntel mar/2026); 46% de rejeição pessoal (Datafolha mar/2026)',
+      'PETROBRAS/ODEBRECHT: Envolvimento do PT em desvios bilionários durante seus governos 2003–2010 e 2011–2016 (Dilma); Lula reconheceu em 2022 que houve corrupção mas negou ciência'
+    ],
+    estadosFav:['PA','MA','PI','CE','RN','PB','PE','AL','SE','BA','AM','AC','RO','TO','AP','RR']
+  },
+  {
+    nome:'Flávio',fullNome:'Flávio Bolsonaro',partido:'PL',
+    cargo:'Senador RJ · Pré-candidato (indicado por Jair Bolsonaro)',
+    intencao:32,intencao2t:43,score:42,favorito:false,alerta:true,
+    chips:['1º turno: 32%','2º turno: 43%','Crescimento acelerado','Apoio de Tarcísio'],
+    alertas:['Filho de Jair Bolsonaro, inelegível condenado pelo TSE','Herdeiro do capital político do movimento do 8/jan','Rejeição de 45% (Datafolha mar/2026)','Investigações patrimoniais em andamento no TCE-RJ'],
+    estadosFav:['SP','SC','RS','PR','MG','ES','GO','MS','MT','DF','RO','RR']
+  },
+  {
+    nome:'Ratinho Jr',fullNome:'Ratinho Junior',partido:'PSD',
+    cargo:'Governador do Paraná · Pré-candidato',
+    intencao:7,intencao2t:0,score:58,favorito:false,alerta:false,
+    chips:['1º turno: 7%','PSD','Alta aprovação PR','Disputa interna no partido'],
+    alertas:[],
+    estadosFav:[]
+  },
+  {
+    nome:'Zema',fullNome:'Romeu Zema',partido:'NOVO',
+    cargo:'Governador de MG · Pré-candidato',
+    intencao:4,intencao2t:0,score:62,favorito:false,alerta:false,
+    chips:['1º turno: 4%','NOVO','MG','Nega ser vice de Flávio'],
+    alertas:[],
+    estadosFav:[]
+  },
+  {
+    nome:'Renan Santos',fullNome:'Renan Santos',partido:'MISSÃO',
+    cargo:'Líder do Movimento Missão · Pré-candidato',
+    intencao:3,intencao2t:0,score:55,favorito:false,alerta:false,
+    chips:['1º turno: 3%','Missão','Evangélicos'],
+    alertas:[],
+    estadosFav:[]
+  },
+  {
+    nome:'Jair',fullNome:'Jair Bolsonaro',partido:'PL',
+    cargo:'Ex-presidente · ⛔ INELEGÍVEL até 2030',
+    intencao:0,intencao2t:0,score:22,favorito:false,alerta:true,
+    chips:['INELEGÍVEL TSE','Condenado por golpe','Preso preventivo','8 de Janeiro'],
+    alertas:[
+      'Condenado pelo TSE — inelegível até 30/jun/2030',
+      'Preso preventivo por tentativa de golpe de estado (STF, 2025)',
+      'Condenado pelos atos de 8 de janeiro de 2023',
+      'Mesmo inelegível, citado por 3% nas pesquisas espontâneas'
+    ],
+    estadosFav:[]
+  },
+];
+
+// Mapa atualizado: Flávio lidera Sul/CO/Sudeste, Lula domina Norte/Nordeste
+const MAPA_PRES={
+  AC:'Lula',AL:'Lula',AM:'Lula',AP:'Lula',BA:'Lula',CE:'Lula',
+  DF:'Flávio',ES:'Flávio',GO:'Flávio',MA:'Lula',MT:'Flávio',
+  MS:'Flávio',MG:'Flávio',PA:'Lula',PB:'Lula',PR:'Flávio',
+  PE:'Lula',PI:'Lula',RJ:'Flávio',RN:'Lula',RS:'Flávio',
+  RO:'Flávio',RR:'Flávio',SC:'Flávio',SP:'Flávio',
+  SE:'Lula',TO:'Lula'
+};
+
+const GOVERNADORES=[
+  {uf:'AC',estado:'Acre',favorito:'Gladson Cameli',partido:'PP',intencao:58,score:62,alerta:false},
+  {uf:'AL',estado:'Alagoas',favorito:'Paulo Dantas',partido:'MDB',intencao:51,score:55,alerta:false},
+  {uf:'AM',estado:'Amazonas',favorito:'Wilson Lima',partido:'UNIÃO',intencao:49,score:40,alerta:true},
+  {uf:'AP',estado:'Amapá',favorito:'Clécio Luís',partido:'SOLIDARIEDADE',intencao:52,score:60,alerta:false},
+  {uf:'BA',estado:'Bahia',favorito:'Jerônimo Rodrigues',partido:'PT',intencao:55,score:61,alerta:false},
+  {uf:'CE',estado:'Ceará',favorito:'Elmano de Freitas',partido:'PT',intencao:61,score:63,alerta:false},
+  {uf:'DF',estado:'Distrito Federal',favorito:'Ibaneis Rocha',partido:'MDB',intencao:48,score:35,alerta:true},
+  {uf:'ES',estado:'Espírito Santo',favorito:'Renato Casagrande',partido:'PSB',intencao:57,score:70,alerta:false},
+  {uf:'GO',estado:'Goiás',favorito:'Ronaldo Caiado',partido:'UNIÃO',intencao:64,score:55,alerta:false},
+  {uf:'MA',estado:'Maranhão',favorito:'Carlos Brandão',partido:'PSB',intencao:46,score:52,alerta:false},
+  {uf:'MT',estado:'Mato Grosso',favorito:'Mauro Mendes',partido:'UNIÃO',intencao:55,score:50,alerta:false},
+  {uf:'MS',estado:'Mato Grosso do Sul',favorito:'Eduardo Riedel',partido:'PSDB',intencao:59,score:68,alerta:false},
+  {uf:'MG',estado:'Minas Gerais',favorito:'Romeu Zema',partido:'NOVO',intencao:52,score:62,alerta:false},
+  {uf:'PA',estado:'Pará',favorito:'Helder Barbalho',partido:'MDB',intencao:58,score:38,alerta:true},
+  {uf:'PB',estado:'Paraíba',favorito:'João Azevêdo',partido:'PSB',intencao:61,score:65,alerta:false},
+  {uf:'PR',estado:'Paraná',favorito:'Ratinho Junior',partido:'PSD',intencao:63,score:58,alerta:false},
+  {uf:'PE',estado:'Pernambuco',favorito:'Raquel Lyra',partido:'PSDB',intencao:54,score:60,alerta:false},
+  {uf:'PI',estado:'Piauí',favorito:'Rafael Fonteles',partido:'PT',intencao:53,score:59,alerta:false},
+  {uf:'RJ',estado:'Rio de Janeiro',favorito:'Cláudio Castro',partido:'PL',intencao:44,score:30,alerta:true},
+  {uf:'RN',estado:'Rio Grande do Norte',favorito:'Fátima Bezerra',partido:'PT',intencao:52,score:62,alerta:false},
+  {uf:'RS',estado:'Rio Grande do Sul',favorito:'Eduardo Leite',partido:'PSDB',intencao:60,score:72,alerta:false},
+  {uf:'RO',estado:'Rondônia',favorito:'Marcos Rocha',partido:'UNIÃO',intencao:55,score:51,alerta:false},
+  {uf:'RR',estado:'Roraima',favorito:'Arthur Henrique',partido:'MDB',intencao:50,score:56,alerta:false},
+  {uf:'SC',estado:'Santa Catarina',favorito:'Jorginho Mello',partido:'PL',intencao:58,score:53,alerta:false},
+  {uf:'SP',estado:'São Paulo',favorito:'Tarcísio de Freitas',partido:'REPUBLICANOS',intencao:65,score:61,alerta:false},
+  {uf:'SE',estado:'Sergipe',favorito:'Fábio Mitidieri',partido:'PSD',intencao:53,score:60,alerta:false},
+  {uf:'TO',estado:'Tocantins',favorito:'Wanderlei Barbosa',partido:'REPUBLICANOS',intencao:51,score:40,alerta:true}
+];
+
+const SENADORES=[
+  {uf:'AC',estado:'Acre',favorito:'Alan Rick',partido:'UNIÃO',intencao:55,score:60,alerta:false},
+  {uf:'AL',estado:'Alagoas',favorito:'Rodrigo Cunha',partido:'PODE',intencao:49,score:44,alerta:true},
+  {uf:'AM',estado:'Amazonas',favorito:'Eduardo Braga',partido:'MDB',intencao:52,score:50,alerta:false},
+  {uf:'AP',estado:'Amapá',favorito:'Lucas Barroso',partido:'PODE',intencao:46,score:55,alerta:false},
+  {uf:'BA',estado:'Bahia',favorito:'Otto Alencar',partido:'PSD',intencao:50,score:54,alerta:false},
+  {uf:'CE',estado:'Ceará',favorito:'Camilo Santana',partido:'PT',intencao:58,score:65,alerta:false},
+  {uf:'DF',estado:'Distrito Federal',favorito:'Leila Barros',partido:'PDT',intencao:44,score:67,alerta:false},
+  {uf:'ES',estado:'Espírito Santo',favorito:'Magno Malta',partido:'PL',intencao:46,score:38,alerta:true},
+  {uf:'GO',estado:'Goiás',favorito:'Vanderlan Cardoso',partido:'PSD',intencao:48,score:42,alerta:true},
+  {uf:'MA',estado:'Maranhão',favorito:'Weverton',partido:'PDT',intencao:51,score:55,alerta:false},
+  {uf:'MT',estado:'Mato Grosso',favorito:'Wellington Fagundes',partido:'PL',intencao:50,score:44,alerta:true},
+  {uf:'MS',estado:'Mato Grosso do Sul',favorito:'Nelsinho Trad',partido:'PSD',intencao:52,score:57,alerta:false},
+  {uf:'MG',estado:'Minas Gerais',favorito:'Cleitinho Azevedo',partido:'REPUBLICANOS',intencao:44,score:38,alerta:true},
+  {uf:'PA',estado:'Pará',favorito:'Jader Filho',partido:'MDB',intencao:53,score:49,alerta:false},
+  {uf:'PB',estado:'Paraíba',favorito:'Efraim Filho',partido:'UNIÃO',intencao:57,score:63,alerta:false},
+  {uf:'PR',estado:'Paraná',favorito:'Sergio Moro',partido:'UNIÃO',intencao:50,score:35,alerta:true},
+  {uf:'PE',estado:'Pernambuco',favorito:'Fernando Dueire',partido:'MDB',intencao:46,score:55,alerta:false},
+  {uf:'PI',estado:'Piauí',favorito:'Ciro Nogueira',partido:'PP',intencao:48,score:28,alerta:true},
+  {uf:'RJ',estado:'Rio de Janeiro',favorito:'Romário',partido:'PL',intencao:55,score:36,alerta:true},
+  {uf:'RN',estado:'Rio Grande do Norte',favorito:'Zenaide Maia',partido:'PODE',intencao:49,score:58,alerta:false},
+  {uf:'RS',estado:'Rio Grande do Sul',favorito:'Hamilton Mourão',partido:'REPUBLICANOS',intencao:47,score:42,alerta:true},
+  {uf:'RO',estado:'Rondônia',favorito:'Jaime Bagattoli',partido:'PL',intencao:51,score:46,alerta:false},
+  {uf:'RR',estado:'Roraima',favorito:'Hiran Gonçalves',partido:'PP',intencao:50,score:53,alerta:false},
+  {uf:'SC',estado:'Santa Catarina',favorito:'Esperidião Amin',partido:'PP',intencao:54,score:52,alerta:false},
+  {uf:'SP',estado:'São Paulo',favorito:'José Serra',partido:'PSDB',intencao:38,score:55,alerta:false},
+  {uf:'SE',estado:'Sergipe',favorito:'Alessandro Vieira',partido:'PSDB',intencao:48,score:68,alerta:false},
+  {uf:'TO',estado:'Tocantins',favorito:'Irajá',partido:'PSD',intencao:49,score:50,alerta:false}
+];
+
+const DEPUTADOS=[
+  {nome:'Nikolas Ferreira',partido:'PL',estado:'MG',regiao:'Sudeste',prob:85,score:52,alerta:false,obs:'Mais votado do Brasil 2022 · 1,49M votos'},
+  {nome:'Kim Kataguiri',partido:'UNIÃO',estado:'SP',regiao:'Sudeste',prob:70,score:60,alerta:false,obs:'Mais votado SP 2022'},
+  {nome:'André Janones',partido:'AVANTE',estado:'MG',regiao:'Sudeste',prob:68,score:62,alerta:false,obs:'Alta visibilidade nacional'},
+  {nome:'Guilherme Boulos',partido:'PSOL',estado:'SP',regiao:'Sudeste',prob:65,score:70,alerta:false,obs:'Ex-candidato prefeito SP'},
+  {nome:'Adriana Ventura',partido:'NOVO',estado:'SP',regiao:'Sudeste',prob:60,score:74,alerta:false,obs:'Score alto · NOVO SP'},
+  {nome:'Felipe Francischini',partido:'UNIÃO',estado:'PR',regiao:'Sul',prob:58,score:40,alerta:true,obs:'Cassado pelo STF em 2021 · reeleito 2022'},
+  {nome:'Coronel Chrisóstomo',partido:'PL',estado:'RO',regiao:'Norte',prob:62,score:33,alerta:true,obs:'Score crítico · alta intenção de voto'},
+  {nome:'Josimar Maranhãozinho',partido:'PL',estado:'MA',regiao:'Nordeste',prob:58,score:35,alerta:true,obs:'Investigações no TCU'},
+  {nome:'Cap. Alberto Neto',partido:'REPUBLICANOS',estado:'AM',regiao:'Norte',prob:60,score:38,alerta:true,obs:'Investigações TCE-AM'},
+  {nome:'Ciro Nogueira',partido:'PP',estado:'PI',regiao:'Nordeste',prob:55,score:28,alerta:true,obs:'Score crítico 28 · favorito reeleição'},
+  {nome:'Rodolfo Nogueira',partido:'PL',estado:'MS',regiao:'Centro-Oeste',prob:57,score:42,alerta:true,obs:'Investigações em andamento'},
+  {nome:'Pedro Uczai',partido:'PT',estado:'SC',regiao:'Sul',prob:54,score:65,alerta:false,obs:'Forte no oeste catarinense'},
+  {nome:'Sílvio Costa Filho',partido:'REPUBLICANOS',estado:'PE',regiao:'Nordeste',prob:58,score:54,alerta:false,obs:'Forte em Pernambuco'},
+  {nome:'Moses Rodrigues',partido:'UNIÃO',estado:'CE',regiao:'Nordeste',prob:55,score:60,alerta:false,obs:'Base consolidada no Ceará'},
+  {nome:'Flávia Arruda',partido:'PL',estado:'DF',regiao:'Centro-Oeste',prob:54,score:50,alerta:false,obs:'Ex-ministra · forte no DF'},
+  {nome:'Domingos Neto',partido:'PSD',estado:'CE',regiao:'Nordeste',prob:54,score:59,alerta:false,obs:'Ex-presidente CMIF'},
+];
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function elTab(id, btn) {
+  document.querySelectorAll('.el-cargo-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  ['presidente','governadores','senadores','deputados'].forEach(p=>{
+    const el=document.getElementById('elp-'+p);
+    if(el) el.style.display = p===id ? '' : 'none';
+  });
+}
+
+function elRenderPresidentes() {
+  const grid = document.getElementById('el-pres-grid');
+  if (!grid) return;
+  grid.innerHTML = PRESIDENTES.map(c => {
+    const cor = elCor(c.partido);
+    const sc = elScoreCor(c.score);
+    return `<div class="el-card ${c.favorito?'favorito':''} ${c.alerta?'alerta':''}">
+      <div class="el-nome">${c.fullNome}</div>
+      <div class="el-partido">${c.partido} · ${c.cargo}</div>
+      <div class="el-chips">${c.chips.map(ch=>`<span class="el-chip">${ch}</span>`).join('')}</div>
+      ${c.intencao>0?`<div class="el-bar-label"><span>1º TURNO</span><span style="color:${cor};font-weight:700">${c.intencao}%</span></div>
+      <div class="el-bar-track"><div class="el-bar-fill" style="width:${c.intencao}%;background:${cor}"></div></div>`:''}
+      ${c.intencao2t>0?`<div class="el-bar-label" style="margin-top:6px"><span>2º TURNO</span><span style="color:${cor};font-weight:700">${c.intencao2t}%</span></div>
+      <div class="el-bar-track"><div class="el-bar-fill" style="width:${c.intencao2t}%;background:${cor};opacity:.7"></div></div>`:''}
+      <div class="el-score-row">
+        <span class="el-score-label">SCORE INTEGRIDADE</span>
+        <span class="el-score-val" style="color:${sc}">${c.score}</span>
+      </div>
+      ${c.alertas.length?`<div style="margin-top:8px">${c.alertas.map(a=>`<div class="el-alerta-item">${a}</div>`).join('')}</div>`:''}`
+    +'</div>';
+  }).join('');
+
+  const alertasDiv = document.getElementById('el-pres-alertas');
+  if (alertasDiv) {
+    alertasDiv.innerHTML = PRESIDENTES.filter(c=>c.alerta).map(c=>`
+      <div style="background:rgba(255,68,68,.06);border:1px solid rgba(255,68,68,.25);border-left:3px solid #ff4444;border-radius:4px;padding:14px 16px;margin-bottom:10px">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#ff4444;letter-spacing:1.5px;margin-bottom:8px">🚨 ${c.fullNome.toUpperCase()} · ${c.partido} · SCORE ${c.score}</div>
+        ${c.alertas.map(a=>`<div style="font-size:11px;color:#c07070;margin-bottom:4px;font-family:'IBM Plex Mono',monospace">⚠ ${a}</div>`).join('')}
+      </div>`).join('');
+  }
+}
+
+function elRenderMapa() {
+  const colorMap = {};
+  PRESIDENTES.forEach(c => { colorMap[c.nome] = elCor(c.partido); });
+  document.querySelectorAll('#el-svg-map path').forEach(path => {
+    const uf = path.getAttribute('data-uf');
+    const fav = MAPA_PRES[uf] || 'Tarcísio';
+    const cor = colorMap[fav] || '#4a6080';
+    path.style.fill = cor;
+    path.style.fillOpacity = '0.7';
+    path.addEventListener('mouseenter', e => {
+      const cand = PRESIDENTES.find(c=>c.nome===fav);
+      document.getElementById('el-tt-uf').textContent = uf+' · '+path.getAttribute('data-nome');
+      document.getElementById('el-tt-nome').textContent = '🗳 '+( cand?cand.fullNome:fav );
+      document.getElementById('el-tt-info').textContent = cand ? cand.partido+(cand.intencao>0?' · '+cand.intencao+'% intenção':'') : '';
+      const tt=document.getElementById('el-tt');
+      tt.style.left=Math.min(e.clientX+14,window.innerWidth-270)+'px';
+      tt.style.top=Math.min(e.clientY-10,window.innerHeight-110)+'px';
+      tt.classList.add('show');
+    });
+    path.addEventListener('mousemove', e => {
+      const tt=document.getElementById('el-tt');
+      tt.style.left=Math.min(e.clientX+14,window.innerWidth-270)+'px';
+      tt.style.top=Math.min(e.clientY-10,window.innerHeight-110)+'px';
+    });
+    path.addEventListener('mouseleave', () => document.getElementById('el-tt').classList.remove('show'));
+  });
+  const leg = document.getElementById('el-mapa-leg');
+  if (leg) {
+    const seen = {};
+    Object.values(MAPA_PRES).forEach(nome => {
+      if (!seen[nome]) { const c=PRESIDENTES.find(p=>p.nome===nome); seen[nome]=c?elCor(c.partido):'#4a6080'; }
+    });
+    leg.innerHTML = Object.entries(seen).map(([nome,cor])=>`<div class="el-leg-item"><div class="el-leg-dot" style="background:${cor}"></div><span>${nome}</span></div>`).join('');
+  }
+}
+
+function elRenderTable(data, bodyId) {
+  const tbody = document.getElementById(bodyId);
+  if (!tbody) return;
+  tbody.innerHTML = data.map(r => {
+    const cor = elCor(r.partido);
+    const sc = elScoreCor(r.score);
+    return `<tr>
+      <td><div class="el-tnome">${r.estado}</div><div class="el-tuf">${r.uf}</div></td>
+      <td style="font-size:.85rem;font-weight:600;color:#e0e8ff">${r.favorito}</td>
+      <td><span class="el-partido-tag" style="color:${cor};border-color:${cor}44">${r.partido}</span></td>
+      <td><div style="display:flex;align-items:center;gap:8px">
+        <div class="el-bar-sm-track"><div class="el-bar-sm-fill" style="width:${r.intencao}%;background:${cor}"></div></div>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:${cor}">${r.intencao}%</span>
+      </div></td>
+      <td><span style="font-family:'Bebas Neue',sans-serif;font-size:1.1rem;color:${sc}">${r.score}</span></td>
+      <td>${r.alerta?`<span class="el-alerta-tag">🚨 SCORE ${r.score}</span>`:`<span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:#00c853">✓ OK</span>`}</td>
+    </tr>`;
+  }).join('');
+}
+
+function elRenderDeputados() {
+  const grid = document.getElementById('el-dep-grid');
+  if (!grid) return;
+  grid.innerHTML = DEPUTADOS.map(d => {
+    const cor = elCor(d.partido);
+    const sc = elScoreCor(d.score);
+    return `<div class="el-card ${d.alerta?'alerta':''}">
+      <div class="el-nome">${d.nome}</div>
+      <div class="el-partido">${d.partido} · ${d.estado} · ${d.regiao}</div>
+      <div class="el-chips"><span class="el-chip">${d.obs}</span></div>
+      <div class="el-bar-label"><span>PROB. REELEIÇÃO</span><span style="color:${cor};font-weight:700">${d.prob}%</span></div>
+      <div class="el-bar-track"><div class="el-bar-fill" style="width:${d.prob}%;background:${cor}"></div></div>
+      <div class="el-score-row">
+        <span class="el-score-label">SCORE INTEGRIDADE</span>
+        <span class="el-score-val" style="color:${sc}">${d.score}</span>
+      </div>
+      ${d.alerta?`<div style="margin-top:8px"><div class="el-alerta-item">Alto risco: candidato com baixo score e alta probabilidade de eleição</div></div>`:''}
+    </div>`;
+  }).join('');
+}
+
+async function elAtualizarIA() {
+  const apiKey = akRequired();
+  if (!apiKey) return;
+  const btn = document.getElementById('el-update-btn');
+  const status = document.getElementById('el-update-status');
+  btn.disabled = true;
+  btn.textContent = '⏳ BUSCANDO PESQUISAS RECENTES...';
+  status.textContent = '';
+
+  const hoje = new Date().toLocaleDateString('pt-BR');
+  const prompt = `Você é um analista político especializado em eleições brasileiras.
+Data atual: ${hoje}
+
+Busque as pesquisas eleitorais mais recentes (últimas 2 semanas) para as eleições presidenciais brasileiras de 2026.
+
+Retorne EXCLUSIVAMENTE um JSON válido com esta estrutura (sem markdown, sem texto antes/depois):
+{
+  "atualizado_em": "DD/MM/AAAA",
+  "fonte_principal": "nome do instituto",
+  "cenario_1t": [
+    {"nome": "Nome Completo", "partido": "SIGLA", "percentual": 00, "variacao": "+0 ou -0 vs mês anterior"},
+    ...
+  ],
+  "cenario_2t": {"candidato1": "Nome", "pct1": 00, "candidato2": "Nome", "pct2": 00, "resultado": "EMPATE TÉCNICO ou NOME lidera"},
+  "destaque": "frase de 1 linha sobre o principal movimento desta pesquisa"
+}`;
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 800,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const data = await resp.json();
+    const txt = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text||'').join('');
+    const js = txt.replace(/```json\n?/g,'').replace(/```\n?/g,'').trim();
+    const s = js.indexOf('{'), e = js.lastIndexOf('}');
+    if (s >= 0 && e >= 0) {
+      const info = JSON.parse(js.slice(s, e+1));
+      // Update display
+      btn.textContent = '✓ ATUALIZADO · ' + info.atualizado_em;
+      status.style.color = '#00c853';
+      status.textContent = '📊 ' + info.fonte_principal + ' · ' + info.destaque;
+      // Update cards with new data
+      if (info.cenario_1t && info.cenario_1t.length) {
+        PRESIDENTES.forEach(p => {
+          const novo = info.cenario_1t.find(c => c.nome && c.nome.includes(p.nome));
+          if (novo) {
+            p.intencao = novo.percentual || p.intencao;
+            if (novo.variacao) p.chips[0] = `1º turno: ${novo.percentual}% (${novo.variacao})`;
+          }
+        });
+        elRenderPresidentes();
+        elRenderMapa();
+      }
+    }
+  } catch(err) {
+    console.error(err);
+    btn.textContent = '⚡ ATUALIZAR COM IA · PESQUISAS RECENTES';
+    status.style.color = '#ff4444';
+    status.textContent = '⚠ Erro ao buscar. Verifique sua chave da API.';
+  }
+  btn.disabled = false;
+}
+
+setTimeout(() => {
+  elRenderPresidentes();
+  elRenderMapa();
+  elRenderTable(GOVERNADORES, 'el-gov-body');
+  elRenderTable(SENADORES, 'el-sen-body');
+  elRenderDeputados();
+}, 500);
+</script>
+</div><!-- /tab-eleicoes -->
 
 </body>
 </html>
